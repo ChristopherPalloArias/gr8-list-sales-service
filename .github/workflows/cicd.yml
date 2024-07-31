@@ -1,52 +1,30 @@
-name: CICD
+name: Backend CICD
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master
 
 jobs:
-  build-and-deploy:
-    runs-on: [ ubuntu-latest ]
+  build:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout Source
         uses: actions/checkout@v3
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: 'us-east-2'
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-        with:
-          mask-password: 'true'
-          
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-          REPOSITORY: gr8-read-user-service
-        run: |
-          # Build a docker container and
-          # push it to ECR so that it can
-          # be deployed to ECS.
-          docker build -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT    
+      - name: Login to Docker Hub
+        run: docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build Docker Image
+        run: docker build -t christopherpallo2000/cp-read-sales-service .
+      - name: Publish image to docker hub
+        run: docker push christopherpallo2000/cp-read-sales-service:latest   
 
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: gr8-read-user-task.json
-          container-name: gr8-read-user-service
-          image: ${{ steps.build-image.outputs.image }}    
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: service-read-user-gr8
-          cluster: DevCluster-gr8
-          wait-for-service-stability: true
+  deploy: 
+    needs: build
+    runs-on: sales-read    
+    steps:
+      - name: Pull image from docker hub
+        run: docker pull christopherpallo2000/cp-read-sales-service:latest
+      - name: read Old Container
+        run: docker rm -f readsalesService || true
+      - name: Run docker container
+        run: docker run -d --name readsalesService -p 8099:8099 christopherpallo2000/cp-read-sales-service
